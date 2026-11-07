@@ -34,6 +34,43 @@ Nothing is written to disk. Then send `/start` to your bot.
 
 Open your owner chat with the bot once (`/start`) so it can forward support messages to you.
 
+## راهنمای نصب فارسی
+
+### پیش‌نیازها
+
+- یک ربات تلگرام بسازید و توکنش را از [@BotFather](https://t.me/BotFather) بگیرید.
+- در Cloudflare یک API Token بسازید که دسترسی‌های حسابی `Workers Scripts: Edit`،
+  `Workers KV Storage: Edit` و `Account Settings: Read` را داشته باشد.
+- برای شناسه عددی مالک، از رباتی که آیدی را نشان می‌دهد استفاده کنید؛ شناسه باید فقط عدد باشد.
+- محیط اجرا باید `bash`، `curl` و `node` داشته باشد. در Termux می‌توانید این ابزارها را نصب کنید:
+
+```bash
+pkg update
+pkg install bash curl nodejs
+```
+
+### نصب و راه‌اندازی
+
+1. مخزن را دانلود یا کلون کنید و وارد پوشه پروژه شوید.
+2. اسکریپت نصب را اجرا کنید:
+
+```bash
+bash deploy.sh
+```
+
+3. در پاسخ به درخواست‌ها، Cloudflare API Token، توکن ربات، شناسه عددی مالک و نام Worker را وارد کنید.
+   هنگام وارد کردن توکن‌ها، ورودی مخفی است. اسکریپت KV را می‌سازد، Worker را بارگذاری می‌کند و webhook را تنظیم می‌کند.
+4. در تلگرام به ربات پیام `/start` بدهید. مالک هم باید یک‌بار `/start` بزند تا ربات بتواند پیام‌های پشتیبانی را برای او بفرستد.
+5. برای فعال‌کردن جوین اجباری، ربات را در کانال موردنظر ادمین کنید و از پنل ادمین کانال را اضافه کنید.
+
+### تنظیمات و عیب‌یابی
+
+- `BOT_TOKEN` باید توکن معتبر BotFather و `OWNER_ID` آیدی عددی مالک باشد.
+- Worker باید به KV با نام binding برابر `DB` دسترسی داشته باشد؛ اسکریپت نصب آن را تنظیم می‌کند.
+- اگر جوین اجباری کار نمی‌کند، بررسی کنید ربات در کانال ادمین باشد و مجوز دیدن عضویت‌ها را داشته باشد.
+- اگر اسکریپت نتوانست زیردامنه `workers.dev` را پیدا کند، ابتدا آن را در بخش Workers & Pages داشبورد Cloudflare ایجاد کنید و سپس webhook را تنظیم کنید.
+- در صورت افشای هرکدام از توکن‌ها، آن را فوراً باطل و جایگزین کنید.
+
 ## Configuration
 
 | Name | Type | Description |
@@ -42,12 +79,14 @@ Open your owner chat with the bot once (`/start`) so it can forward support mess
 | `OWNER_ID` | variable | numeric Telegram ID of the owner |
 | `DB` | KV binding | stores settings (admins, forced channels, forced-join switch) and chosen languages |
 
-Tunable constants at the top of `worker.js`: `LIMIT`, `WINDOW`, `MUTE` (anti-spam), `CFG_TTL`, `JOIN_TTL` (cache).
+Tunable constants at the top of `worker.js`: `LIMIT`, `WINDOW`, `MUTE`, `CFG_TTL`, `JOIN_TTL` (cache).
 
 ## Notes
 
 - The forced-join check only works if the bot is an admin in those channels.
 - Anti-spam counters and caches live in the worker's memory, so they reset when the isolate restarts.
+- The current `/setup` endpoint is not separately authenticated. Do not treat it as a secure administrative endpoint; it can reset the Telegram webhook and discard pending updates. This should be fixed in the Worker before relying on the bot in production.
+- The current membership check does not fail closed when Telegram's membership lookup errors, and it does not explicitly handle `restricted` members with `is_member: false`. Verify membership behavior before relying on forced join as an access control.
 - Never commit tokens. If one leaks, revoke it (`/revoke` in BotFather, or roll it in the Cloudflare dashboard).
 
 ## License
