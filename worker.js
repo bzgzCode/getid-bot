@@ -1,6 +1,7 @@
 // Telegram "Get ID" bot — Cloudflare Worker (webhook + KV), lightweight edition
 // No secrets or IDs in this file. Config comes from the environment:
 //   BOT_TOKEN (secret), OWNER_ID (numeric Telegram id of the owner), KV binding named DB.
+//   SETUP_SECRET (optional secret used to protect /setup from unauthenticated calls).
 // Stored in KV: bot settings (admins, forced channels) + a language only if the user picks one.
 // No stats, no user list, no messages stored. Anti-spam and caches live in memory only.
 
@@ -55,7 +56,7 @@ const T = {
     joined: '✅ عضو شدم', notJoined: '❌ هنوز در همه کانال‌ها عضو نشده‌اید.',
     rUser: '👤 کاربر', rBot: '👽 ربات', rGroup: '👥 گروه', rChannel: '📢 کانال', rForum: '💬 فروم', rPremium: '⭐ کاربر پریمیوم',
     title: 'عنوان', username: 'یوزرنیم',
-    supportInfo: '🆘 <b>پشتیبانی</b>\nپیامتان را همین‌جا بنویسید (متن، عکس، ویس، فایل…). مستقیم برای ادمین ارسال می‌شود و پاسخ همین‌جا می‌آید.',
+    supportInfo: '🆘 <b>پشتیبانی</b>\nپیامتان را همین‌جا بنویسید (متن، عکس، ویس، فایل…). مستقیم برای ادمین ارسال می‌شود و پاسخ در همین جا می‌آید.',
     supportSent: '✅ پیام شما برای ادمین ارسال شد.',
     spam: (s) => `⏳ درخواست‌های زیاد. لطفاً ${s} ثانیه صبر کنید.`,
     panel: (o, f, c, a) => `⚙️ <b>پنل ادمین</b>\n\n👑 مالک: <code>${o}</code>\n🔒 جوین اجباری: <b>${f ? 'روشن' : 'خاموش'}</b>\n📢 کانال‌های اجباری: <b>${c}</b>\n👮 ادمین‌ها: <b>${a}</b>`,
@@ -81,10 +82,10 @@ const T = {
     joined: '✅ Я подписался', notJoined: '❌ Вы ещё не подписались на все каналы.',
     rUser: '👤 Пользователь', rBot: '👽 Бот', rGroup: '👥 Группа', rChannel: '📢 Канал', rForum: '💬 Форум', rPremium: '⭐ Premium-пользователь',
     title: 'Название', username: 'Юзернейм',
-    supportInfo: '🆘 <b>Поддержка</b>\nПросто напишите сообщение здесь (текст, фото, голосовое, файл…). Оно сразу уйдёт админу, а ответ придёт сюда.',
+    supportInfo: '🆘 <b>Поддержка</b>\nПросто напишите сообщение здесь (текст, фото, голосовое, файл…). Оно сразу уйдёт админу и ответ придёт сюда.',
     supportSent: '✅ Ваше сообщение отправлено админу.',
     spam: (s) => `⏳ Слишком много запросов. Подождите ${s} сек.`,
-    panel: (o, f, c, a) => `⚙️ <b>Панель админа</b>\n\n👑 Владелец: <code>${o}</code>\n🔒 Обязательная подписка: <b>${f ? 'ВКЛ' : 'ВЫКЛ'}</b>\n📢 Каналов: <b>${c}</b>\n👮 Админов: <b>${a}</b>`,
+    panel: (o, f, c, a) => `⚙️ <b>Панель админа</b>\n\n👑 Владелец: <code>${o}</code>\n🔒 Обязательная подписка: <b>${f ? 'ВКЛ' : 'ВЫКЛ'}</b>\n📢 Обязательные каналы: <b>${c}</b>\n👮 Админы: <b>${a}</b>`,
     forceOn: '🔒 Подписка: ВКЛ ✅', forceOff: '🔓 Подписка: ВЫКЛ ❌',
     channels: '📢 Обязательные каналы', admins: '👮 Админы', add: '➕ Добавить', back: '🔙 Назад', cancel: '✖️ Отмена',
     chTitle: '📢 <b>Обязательные каналы</b>\nНажмите на канал, чтобы удалить.', adTitle: '👮 <b>Админы</b>\nНажмите на админа, чтобы удалить.',
@@ -159,6 +160,11 @@ export default {
 
     if (url.pathname === '/setup') {
       if (!env.DB) return new Response('KV namespace is not bound. Add a KV binding named DB.', { status: 500 });
+      const setupSecret = env.SETUP_SECRET || '';
+      const provided = req.headers.get('X-Setup-Secret') || url.searchParams.get('secret') || '';
+      if (!setupSecret || provided !== setupSecret) {
+        return new Response('forbidden', { status: 403 });
+      }
       const r = await tg(token, 'setWebhook', {
         url: url.origin + '/webhook', secret_token: secret,
         allowed_updates: ['message', 'callback_query'], drop_pending_updates: true,
@@ -256,7 +262,11 @@ async function handle(token, KV, update) {
     if (isAdm || !cfg.force || !cfg.channels.length) return [];
     if (!force && (JOINED.get(uid) || 0) > Date.now()) return [];
     const rs = await Promise.all(cfg.channels.map((ch) => api('getChatMember', { chat_id: ch.id, user_id: uid })));
-    const res = cfg.channels.filter((ch, i) => rs[i].ok && ['left', 'kicked'].includes(rs[i].result.status));
+    const res = cfg.channels.filter((ch, i) => {
+      const r = rs[i];
+      const status = r && r.result && typeof r.result.status === 'string' ? r.result.status : '';
+      return !r || !r.ok || !['member', 'administrator', 'creator'].includes(status);
+    });
     if (!res.length) { if (JOINED.size > 5000) JOINED.clear(); JOINED.set(uid, Date.now() + JOIN_TTL); }
     return res;
   }
